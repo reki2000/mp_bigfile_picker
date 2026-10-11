@@ -1,200 +1,215 @@
+import 'dart:async';
 import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:mp_bigfile_picker/mp_bigfile_picker.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
-void main() => runApp(const MaterialApp(home: ExamplePage()));
+void main() => runApp(const MaterialApp(home: BinaryViewer()));
 
-class ExamplePage extends StatefulWidget {
-  const ExamplePage({super.key});
+class BinaryViewer extends StatefulWidget {
+  final Future<RandomReadFile?> Function()? selectFile;
+
+  const BinaryViewer({super.key, this.selectFile});
 
   @override
-  State<ExamplePage> createState() => _ExamplePageState();
+  State<BinaryViewer> createState() => _BinaryViewerState();
 }
 
-class _ExamplePageState extends State<ExamplePage> {
-  static const _dirKey = 'restore_key';
-  static const _filesKey = 'restore_file_keys';
+class _BinaryViewerState extends State<BinaryViewer> {
+  static const _pageSize = 256;
+  final _offsetInput = TextEditingController(text: '0');
+  RandomReadFile? _file;
+  Future<Uint8List>? _pendingRead;
+  Uint8List _bytes = Uint8List(0);
+  int _size = 0;
+  int _offset = 0;
+  bool _busy = false;
+  String? _error;
 
-  /// the title: the directory, or the picked files
-  String _title = 'mp_bigfile_picker';
-
-  /// the files listed, by the path in the directory or the name
-  List<String> _files = [];
-  RandomReadFile Function(String) _openFile = (_) => throw StateError('none');
-  bool _walking = false;
-  String _log = '';
-
-  @override
-  void initState() {
-    super.initState();
-    _restore();
-  }
-
-  void _print(String s) => setState(() => _log = '$s\n$_log');
-
-  Future<void> _restore() async {
-    final prefs = await SharedPreferences.getInstance();
-    final key = prefs.getString(_dirKey);
-    if (key != null) {
-      final dir = await restoreDirectory(key);
-      _print(dir == null ? 'restore failed: $key' : 'restored: ${dir.name}');
-      if (dir != null) await _open(dir);
-      return;
-    }
-    final keys = prefs.getStringList(_filesKey);
-    if (keys != null) {
-      final files = <RandomReadFile>[];
-      for (final k in keys) {
-        final f = await restoreFile(k);
-        _print(f == null ? 'restore failed: $k' : 'restored: ${f.name}');
-        if (f != null) files.add(f);
-      }
-      _showFiles(files);
-    }
-  }
-
-  /// saves the restore keys of the directory or the files
-  Future<void> _save({String? dirKey, List<String>? fileKeys}) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_dirKey);
-    await prefs.remove(_filesKey);
-    if (dirKey != null) await prefs.setString(_dirKey, dirKey);
-    if (fileKeys != null) await prefs.setStringList(_filesKey, fileKeys);
-  }
-
-  Future<void> _pickFiles() async {
-    final files = await pickFiles(multiple: true, dialogTitle: 'Select files');
-    if (files == null) {
-      _print('canceled');
-      return;
-    }
-    final keys = files.map((f) => f.restoreKey).toList();
-    await _save(fileKeys: keys.contains(null) ? null : keys.cast<String>());
-    _print('picked: ${files.length} files\nrestore keys: $keys');
-    _showFiles(files);
-  }
-
-  void _showFiles(List<RandomReadFile> files) {
-    final byName = {for (final f in files) f.name: f};
+  Future<void> _select() async {
     setState(() {
-      _title = '${files.length} files';
-      _files = byName.keys.toList()..sort();
-      _openFile = (name) => byName[name]!;
+      _busy = true;
+      _error = null;
     });
-  }
-
-  Future<void> _pick() async {
-    final dir = await pickDirectory(dialogTitle: 'Select a directory');
-    if (dir == null) {
-      _print('canceled');
-      return;
-    }
-    final key = dir.restoreKey;
-    await _save(dirKey: key);
-    _print('picked: ${dir.name}\nrestore key: $key');
-    await _open(dir);
-  }
-
-  Future<void> _open(PickedDirectory dir) async {
-    setState(() {
-      _title = dir.name;
-      _openFile = dir.open;
-      _files = [];
-      _walking = true;
-    });
-    final sw = Stopwatch()..start();
-    final files = <String>[];
-    await for (final path in dir.walk()) {
-      files.add(path);
-    }
-    files.sort();
-    setState(() {
-      _files = files;
-      _walking = false;
-    });
-    _print('walk: ${files.length} files in ${sw.elapsedMilliseconds} ms');
-  }
-
-  /// reads the head, the tail and random sectors of the file
-  Future<void> _read(String path) async {
-    final file = _openFile(path);
+    RandomReadFile? selected;
     try {
-      final sw = Stopwatch()..start();
-      final length = await file.length();
-      final head = await file.read(0, 16);
-      final tail = await file.read(max(0, length - 16), 16);
-
-      const sector = 2352, count = 256;
-      final rand = Random();
-      int bytes = 0;
-      final t = Stopwatch()..start();
-      for (int i = 0; i < count; i++) {
-        final offset = length <= sector ? 0 : rand.nextInt(length - sector);
-        bytes += (await file.read(offset, sector)).length;
-      }
-      final us = t.elapsedMicroseconds;
-
-      _print('$path: $length bytes (${sw.elapsedMilliseconds} ms)\n'
-          '  head: ${_hex(head)}\n'
-          '  tail: ${_hex(tail)}\n'
-          '  $count random reads of $sector bytes: $bytes bytes, '
-          '${(us / count).toStringAsFixed(1)} us/read');
-    } catch (e) {
-      _print('$path: $e');
+      selected = widget.selectFile != null
+          ? await widget.selectFile!()
+          : (await pickFiles())?.firstOrNull;
+      if (selected == null) return;
+      final size = await selected.length();
+      if (!mounted) return;
+      await _file?.close();
+      if (!mounted) return;
+      _file = selected;
+      selected = null;
+      _size = size;
+      _offset = 0;
+      _bytes = Uint8List(0);
+      _offsetInput.text = '0';
+      await _load(0);
+    } catch (error) {
+      if (mounted) setState(() => _error = '$error');
     } finally {
-      await file.close();
+      await selected?.close();
+      if (mounted) setState(() => _busy = false);
     }
   }
 
-  static String _hex(Uint8List b) =>
-      b.map((x) => x.toRadixString(16).padLeft(2, '0')).join(' ');
+  Future<void> _load(int offset) async {
+    final file = _file;
+    if (file == null) return;
+    final read = file.read(offset, min(_pageSize, _size - offset));
+    _pendingRead = read;
+    try {
+      final bytes = await read;
+      if (!mounted) return;
+      setState(() {
+        _offset = offset;
+        _bytes = bytes;
+        _offsetInput.text = '0x${offset.toRadixString(16)}';
+      });
+    } finally {
+      _pendingRead = null;
+    }
+  }
+
+  Future<void> _go(int offset) async {
+    if (_busy || _file == null) return;
+    if (offset < 0 || (offset >= _size && !(_size == 0 && offset == 0))) {
+      setState(() => _error = 'Offset must be within the file.');
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      await _load(offset);
+    } catch (error) {
+      if (mounted) setState(() => _error = '$error');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  void _jump() {
+    final text = _offsetInput.text.trim();
+    final offset = int.tryParse(text);
+    if (offset == null) {
+      setState(
+          () => _error = 'Enter a decimal offset or hexadecimal 0x offset.');
+      return;
+    }
+    unawaited(_go(offset));
+  }
+
+  String _hexView() {
+    final lines = <String>[];
+    for (int start = 0; start < _bytes.length; start += 16) {
+      final row = _bytes.sublist(start, min(start + 16, _bytes.length));
+      final address = (_offset + start).toRadixString(16).padLeft(12, '0');
+      final hex = row.map((b) => b.toRadixString(16).padLeft(2, '0')).join(' ');
+      final ascii =
+          String.fromCharCodes(row.map((b) => b >= 32 && b <= 126 ? b : 46));
+      lines.add('$address  ${hex.padRight(47)}  |$ascii|');
+    }
+    return lines.join('\n');
+  }
 
   @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(_title),
-        actions: [
-          IconButton(
-              onPressed: _pickFiles,
+  void dispose() {
+    _offsetInput.dispose();
+    final file = _file;
+    final pending = _pendingRead;
+    // Wait for an active read before closing its handle.
+    unawaited(() async {
+      try {
+        await pending;
+      } catch (_) {
+        // Read errors are displayed while the viewer is mounted.
+      } finally {
+        await file?.close();
+      }
+    }());
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        appBar: AppBar(
+          title: const Text('Binary file viewer'),
+          actions: [
+            TextButton.icon(
+              onPressed: _busy ? null : _select,
               icon: const Icon(Icons.file_open),
-              tooltip: 'Pick files'),
-          IconButton(
-              onPressed: _pick,
-              icon: const Icon(Icons.folder_open),
-              tooltip: 'Pick a directory'),
-        ],
-      ),
-      body: Column(
-        children: [
-          Expanded(
-            flex: 3,
-            child: _walking
-                ? const Center(child: CircularProgressIndicator())
-                : ListView.builder(
-                    itemCount: _files.length,
-                    itemBuilder: (_, i) => ListTile(
-                      dense: true,
-                      title: Text(_files[i]),
-                      onTap: () => _read(_files[i]),
+              label: const Text('Open file'),
+            ),
+          ],
+        ),
+        body: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(_file == null
+                  ? 'Open a file to inspect byte ranges.'
+                  : '${_file!.name} — $_size bytes'),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  IconButton(
+                    tooltip: 'Previous page',
+                    onPressed: !_busy && _file != null && _offset > 0
+                        ? () => _go(max(0, _offset - _pageSize))
+                        : null,
+                    icon: const Icon(Icons.chevron_left),
+                  ),
+                  Expanded(
+                    child: TextField(
+                      controller: _offsetInput,
+                      enabled: !_busy && _file != null,
+                      decoration: const InputDecoration(
+                        labelText: 'Byte offset (decimal or 0x hex)',
+                      ),
+                      onSubmitted: (_) => _jump(),
                     ),
                   ),
+                  TextButton(
+                    onPressed: !_busy && _file != null ? _jump : null,
+                    child: const Text('Go'),
+                  ),
+                  IconButton(
+                    tooltip: 'Next page',
+                    onPressed:
+                        !_busy && _file != null && _offset + _pageSize < _size
+                            ? () => _go(_offset + _pageSize)
+                            : null,
+                    icon: const Icon(Icons.chevron_right),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Text('Offset $_offset · ${_bytes.length} bytes · '
+                  '$_pageSize bytes per page'),
+              if (_busy) const LinearProgressIndicator(),
+              if (_error != null)
+                Text(_error!, style: const TextStyle(color: Colors.red)),
+              const SizedBox(height: 16),
+              Expanded(
+                child: SingleChildScrollView(
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: SelectableText(
+                      _hexView(),
+                      style: const TextStyle(fontFamily: 'monospace'),
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ),
-          const Divider(height: 1),
-          Expanded(
-            flex: 2,
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(8),
-              child: SelectableText(_log,
-                  style:
-                      const TextStyle(fontFamily: 'monospace', fontSize: 12)),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+        ),
+      );
 }

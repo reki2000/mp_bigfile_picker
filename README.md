@@ -1,57 +1,112 @@
 # mp_bigfile_picker
 
-Picks a directory or files, and reads the files at any offset without copying
-them. For large files such as disc images.
+Flutter file and directory picker with random-access reads. Supports Android, iOS, macOS, Windows, Linux and the web. Reads requested byte ranges without copying entire files in the package.
+
+Requires Flutter 3.38+ and Dart 3.10+. Intended for disc images, archive parsers and binary viewers. Storage providers may download or stage remote files before access.
+
+## Usage
+
+Call pickers from a user action. Cancellation returns `null`. Directory paths use `/` and are relative to the selected directory.
 
 ```dart
 import 'package:mp_bigfile_picker/mp_bigfile_picker.dart';
 
-// a directory
-final dir = await pickDirectory();            // null if canceled
-await for (final path in dir!.walk()) { ... } // 'sub/a.bin'
-final file = dir.open('sub/a.bin');
-final bytes = await file.read(2352 * 16, 2352);
-await file.close();
+Future<void> readDirectory(void Function(String) log) async {
+  final directory = await pickDirectory();
+  if (directory == null) return;
 
-// files
-final files = await pickFiles(extensions: ['cue', 'bin'], multiple: true);
-final head = await files!.first.read(0, 16);
+  await for (final path in directory.walk()) {
+    final file = directory.open(path);
+    try {
+      final bytes = await file.read(0, 16);
+      log('$path: ${bytes.length} bytes');
+    } finally {
+      await file.close();
+    }
+  }
+}
 
-// after a restart. browser file inputs have no restore key
-final again = await restoreDirectory(dir.restoreKey!);
-// In a browser user action, allow a renewed permission prompt if needed:
-final permitted = await restoreDirectory(dir.restoreKey!, requestPermission: true);
-final file2 = await restoreFile(files.first.restoreKey!);
+Future<void> readFiles(void Function(String) log) async {
+  final files = await pickFiles(extensions: ['cue', 'bin'], multiple: true);
+  if (files == null) return;
+
+  for (final file in files) {
+    try {
+      final size = await file.length();
+      final bytes = await file.read(0, 16);
+      log('${file.name}: $size bytes; read ${bytes.length} bytes');
+    } finally {
+      await file.close();
+    }
+  }
+}
 ```
 
-| platform | pick | read | restore |
+The [example](example/lib/main.dart) is a paged binary viewer. Run from `example/`:
+
+```sh
+flutter pub get
+flutter run -d <device>
+```
+
+Open a binary file, enter a decimal or hexadecimal byte offset, or use the page buttons. Each page reads at most 256 bytes and displays hex and ASCII. File contents are not loaded in full. Use the dummy CUE/BIN files in `example/files/` for a small fixture; on mobile, copy them to storage accessible through the system picker.
+
+For directory traversal, restoration and timed random reads, run `flutter run -t lib/diagnostics.dart -d <device>`.
+
+## Platforms
+
+| Platform | Selection | Reads | Restoration |
 |---|---|---|---|
-| Android | Storage Access Framework (`ACTION_OPEN_DOCUMENT_TREE`, `ACTION_OPEN_DOCUMENT`) | `pread` on the document's file descriptor (FFI) | persisted uri permission |
-| iOS | `UIDocumentPickerViewController` (not a copy) | dart:io in the security scope | bookmark |
-| macOS | `NSOpenPanel` | dart:io in the security scope | security scoped bookmark |
-| Linux, Windows | `file_picker` | dart:io | path |
-| web | File System Access directory picker, or `<input type=file>` (`webkitdirectory`) fallback | `Blob.slice` | directory handles in IndexedDB on supporting browsers |
+| Android | Storage Access Framework | `pread64` on a document file descriptor | Persisted URI permission |
+| iOS | Document picker, copying disabled | `dart:io` within security scope | Bookmark |
+| macOS | `NSOpenPanel` | `dart:io` within security scope | Security-scoped bookmark |
+| Windows, Linux | `file_picker` | `dart:io` | Path |
+| Web | File System Access directory picker or file input | `Blob.slice` | Directory handles in IndexedDB; file inputs are session-only |
 
-- `package:mp_bigfile_picker/io.dart` has the dart:io implementation only, with
-  no dependency on Flutter, for command line tools.
-- `package:mp_bigfile_picker/web.dart` has the browser `File` reader, for the
-  files picked by other ways.
-- A sandboxed macOS app needs the entitlements
-  `com.apple.security.files.user-selected.read-only` and
-  `com.apple.security.files.bookmarks.app-scope`.
-- On Android, `extensions` of `pickFiles` is not used, as the picker filters
-  only by mime types.
-- On Android, the documents must be seekable: local storage and SD cards are,
-  but some cloud providers give pipes, which fail with `UnsupportedError`.
-- `PickedDirectory.open` accepts only the paths found by `walk` on Android.
-- The files in a `PickedDirectory` have no restore key: restore the directory.
+- Android documents must be seekable. Some cloud providers return pipes; `length()` throws `UnsupportedError` and reads may fail. Native reads are synchronous on the calling isolate and can delay the UI. `extensions` is ignored; the picker requests all MIME types.
+- Android `open(path)` requires a path previously yielded by `walk()`.
+- Sandboxed macOS apps require `com.apple.security.files.user-selected.read-only` and `com.apple.security.files.bookmarks.app-scope` entitlements.
+- Web directory handles require a supporting browser and a secure context. Permission persistence is browser-controlled. The `webkitdirectory` fallback requires selection again after reload.
 
-- On supporting browsers in a secure context, directory handles are saved in
-  IndexedDB. `restoreDirectory` checks read permission; pass
-  `requestPermission: true` from a user action to request access again. The
-  browser decides whether its permission persists across visits.
-- Browsers without the directory handle API use `webkitdirectory`; access lasts
-  for the current session and the directory must be selected again after a reload.
+## Restoring access
+
+Persist a non-null `restoreKey`. Call `restoreDirectory(key)` or `restoreFile(key)` after restart. A `null` result means access is unavailable. Files may move, permissions may expire, and browser storage may be cleared.
+
+```dart
+Future<PickedDirectory?> reopenDirectory(String key) => restoreDirectory(key);
+
+// Call from a browser user action to request renewed permission.
+Future<PickedDirectory?> requestDirectoryAccess(String key) =>
+    restoreDirectory(key, requestPermission: true);
+```
+
+Directory files have no individual restore keys. Restore the directory, walk it again, and open the relative path. Save the returned `restoreKey` again after restoring an Apple bookmark; stale bookmarks may be renewed. `identityKey` identifies the directory independently of bookmark renewal and cannot restore access.
+
+Call `releaseDirectory(key)` to release saved directory access. `close()` only releases the open file handle. Browser file inputs have no restore keys.
+
+## Read contract
+
+- `length()`: byte length. `read(offset, length)`: requested bytes, possibly shorter at EOF.
+- Offsets and lengths must be nonnegative. Invalid-argument handling varies by backend.
+- Each read allocates memory for its byte range. Use bounded reads for large files.
+- Call `close()` in `finally`. The next read can reopen the file.
+- Local-file reads are serialized. Avoid concurrent `close()`, `read()` and `length()` lifecycle operations.
+- Read errors propagate; exception types vary by backend.
+- Local directory traversal skips unreadable subdirectories.
+
+## Storage adapters
+
+- `package:mp_bigfile_picker/io.dart`: local-file reader without Flutter imports. The package still requires the Flutter SDK.
+- `package:mp_bigfile_picker/web.dart`: reader for browser `File` objects obtained through other APIs.
+
+## Tests
+
+```sh
+flutter test test/io_impl_test.dart
+flutter test --platform chrome test/web_access_test.dart
+```
+
+Tests cover local traversal, overlapping reads, EOF, reopening, browser handle storage, restoration, permission requests and cancellation. Browser tests substitute the picker; native dialogs are not exercised. Multi-gigabyte benchmarks and an Android/iOS/macOS device-validation matrix are not yet available.
 
 ## License
 

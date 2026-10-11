@@ -5,11 +5,10 @@ description: >-
 version: 0.1.0
 repository: https://github.com/reki2000/mp_bigfile_picker
 issue_tracker: https://github.com/reki2000/mp_bigfile_picker/issues
-publish_to: none
 
 environment:
-  sdk: ">=3.3.0 <4.0.0"
-  flutter: ">=3.27.0"
+  sdk: ">=3.10.0 <4.0.0"
+  flutter: ">=3.38.0"
 
 dependencies:
   flutter:

@@ -5,11 +5,11 @@
 Pod::Spec.new do |s|
   s.name             = 'mp_bigfile_picker'
   s.version          = '0.1.0'
-  s.summary          = 'Picks a directory and reads its files at any offset without copying.'
+  s.summary          = 'Picks files or directories and reads byte ranges without full-file copies.'
   s.description      = <<-DESC
-Picks a directory and reads its files at any offset without copying.
+Picks files or directories and reads byte ranges without full-file copies.
                        DESC
-  s.homepage         = 'https://github.com/reki2000/fnesemu'
+  s.homepage         = 'https://github.com/reki2000/mp_bigfile_picker'
   s.license          = { :file => '../LICENSE' }
   s.author           = { 'reki2000' => '' }
 

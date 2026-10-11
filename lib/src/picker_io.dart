@@ -16,8 +16,8 @@ bool get _isDarwin => Platform.isIOS || Platform.isMacOS;
 Future<String?> Function({String? dialogTitle, String? initialDirectory})?
     debugDirectoryDialog;
 
-/// lets the user select a directory. returns null if canceled. the dialog
-/// opens at [initialDirectory] where the platform supports it.
+/// Selects a directory, returning null on cancellation.
+/// [dialogTitle] and [initialDirectory] are hints on supported platforms.
 Future<PickedDirectory?> pickDirectory(
     {String? dialogTitle, String? initialDirectory}) async {
   if (debugDirectoryDialog case final dialog?) {
@@ -33,8 +33,8 @@ Future<PickedDirectory?> pickDirectory(
   return path == null ? null : IoDirectory(path);
 }
 
-/// opens the directory of [PickedDirectory.restoreKey] again, or null if it is
-/// not available any more
+/// Restores a saved [PickedDirectory.restoreKey], or null if unavailable.
+/// [requestPermission] is only used by the browser implementation.
 Future<PickedDirectory?> restoreDirectory(String restoreKey,
     {bool requestPermission = false}) async {
   if (Platform.isAndroid) return restoreSafDirectory(restoreKey);
@@ -43,16 +43,16 @@ Future<PickedDirectory?> restoreDirectory(String restoreKey,
   return await Directory(restoreKey).exists() ? IoDirectory(restoreKey) : null;
 }
 
-/// gives back the access to the directory of [PickedDirectory.restoreKey]
-/// kept for `restoreDirectory`. the directory is not opened again by the key.
+/// Releases saved directory access identified by [restoreKey].
+/// Local path restoration has no persistent permission to release.
 Future<void> releaseDirectory(String restoreKey) async {
   if (Platform.isAndroid) return releaseSafDirectory(restoreKey);
   if (_isDarwin) return releaseDarwin(restoreKey);
 }
 
-/// lets the user select files. returns null if canceled. [extensions] ('cue',
-/// without dots) is a hint: Android does not filter by it. the dialog opens
-/// at [initialDirectory] where the platform supports it.
+/// Selects files, returning null on cancellation.
+/// [extensions] omit dots, for example 'cue'; Android ignores this filter.
+/// [multiple] enables multiple selection. Dialog options are platform hints.
 Future<List<RandomReadFile>?> pickFiles(
     {List<String>? extensions,
     bool multiple = false,
@@ -88,8 +88,7 @@ Future<List<RandomReadFile>?> pickFiles(
       .toList();
 }
 
-/// opens the file of [RandomReadFile.restoreKey] again, or null if it is not
-/// available any more
+/// Restores a saved [RandomReadFile.restoreKey], or null if unavailable.
 Future<RandomReadFile?> restoreFile(String restoreKey) async {
   if (Platform.isAndroid) return restoreSafFile(restoreKey);
   if (_isDarwin) return restoreDarwinFile(restoreKey);

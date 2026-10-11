@@ -1,44 +1,51 @@
-// the platform independent interface. no dependency on dart:io or flutter.
+/// Platform-independent file and directory interfaces.
+library;
+
 import 'dart:typed_data';
 
-/// a file read at any offset, without loading the whole
+/// A file supporting reads at absolute byte offsets.
 abstract class RandomReadFile {
+  /// File name without the directory path.
   String get name;
 
-  /// a key to open the file again after a restart by `restoreFile`, or null if
-  /// it cannot (the web, or a file in a [PickedDirectory])
+  /// Key for `restoreFile`, or null when restoration is unavailable.
+  /// Files in a [PickedDirectory] have no individual key; restore the directory.
   String? get restoreKey => null;
 
+  /// Returns the file's byte length.
   Future<int> length();
 
-  /// reads [length] bytes from [offset]. returns less bytes at the end of the
-  /// file.
+  /// Reads up to [length] bytes at [offset], returning fewer bytes at EOF.
+  /// Offsets and lengths must be nonnegative. Read errors propagate.
+  /// Backend exception types and invalid-argument handling vary.
   Future<Uint8List> read(int offset, int length);
 
-  /// the file is opened again by the next [read]
+  /// Releases the open file handle. The next [read] can reopen the file.
+  /// Avoid overlapping close with reads or length queries.
   Future<void> close();
 }
 
-/// a directory selected by the user
+/// A user-selected directory with relative-path file access.
 abstract class PickedDirectory {
+  /// Directory name without its parent path.
   String get name;
 
-  /// the full path to show to the user, or [name] where the platform does
-  /// not give one (the web)
+  /// Display path, or [name] when a full path is unavailable.
   String get displayPath => name;
 
-  /// a key to open the directory again after a restart by
-  /// `restoreDirectory`, or null in browsers without persistent directory access.
+  /// Key for `restoreDirectory`, or null when restoration is unavailable.
+  /// Saved keys do not guarantee continued access after permission changes.
   String? get restoreKey;
 
   /// Stable directory identity, independent of a renewed permission token.
   /// Use [restoreKey], rather than this identity, to restore access.
   String? get identityKey => restoreKey;
 
-  /// the paths of the files below the directory, relative to it and separated
-  /// by '/'
+  /// Recursively lists relative file paths separated by '/'.
+  /// Local-file traversal skips unreadable subdirectories.
   Stream<String> walk();
 
-  /// the file at a path of [walk]. it is opened when it is read.
+  /// Returns a file at a path yielded by [walk], opened lazily on access.
+  /// Android requires a prior walk to resolve the path to a document URI.
   RandomReadFile open(String path);
 }
