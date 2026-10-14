@@ -1,0 +1,33 @@
+workflows:
+  mobile-example:
+    name: Build mobile example
+    instance_type: mac_mini_m2
+    # The repository root is a plugin; its host application is in example/.
+    working_directory: example
+    environment:
+      flutter: stable
+      xcode: latest
+      cocoapods: default
+      java: 17
+    scripts:
+      - name: Get package dependencies
+        working_directory: .
+        script: flutter pub get
+      - name: Test native file and directory adapters
+        working_directory: .
+        script: flutter test test/io_impl_test.dart test/picker_io_test.dart test/darwin_impl_test.dart test/native_picker_test.dart
+      - name: Test browser file access
+        working_directory: .
+        script: flutter test --platform chrome test/web_access_test.dart
+      - name: Get example dependencies
+        script: flutter pub get
+      - name: Test example
+        script: flutter test
+      - name: Build iOS example without signing
+        script: flutter build ios --release --no-codesign
+      - name: Build Android example
+        script: flutter build apk --debug
+    # Artifact paths are relative to the repository root, not working_directory.
+    artifacts:
+      - example/build/ios/iphoneos/*.app
+      - example/build/app/outputs/flutter-apk/*.apk
