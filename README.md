@@ -103,10 +103,13 @@ Call `releaseDirectory(key)` to release saved directory access. `close()` only r
 
 ```sh
 flutter test test/io_impl_test.dart
+flutter test test/picker_io_test.dart test/darwin_impl_test.dart
 flutter test --platform chrome test/web_access_test.dart
 ```
 
 Tests cover local traversal, overlapping reads, EOF, reopening, browser handle storage, restoration, permission requests and cancellation. Browser tests substitute the picker; native dialogs are not exercised. Multi-gigabyte benchmarks and an Android/iOS/macOS device-validation matrix are not yet available.
+
+`debugDirectoryDialog` supplies local directory paths in native tests. While the callback is installed, those directories are restored by path and releasing access is a no-op, without native platform calls. Reset the callback to `null` in teardown. Darwin adapter tests verify bookmark restoration and release through the package's method channel separately.
 
 ## License
 

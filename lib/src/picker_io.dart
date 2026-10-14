@@ -10,8 +10,8 @@ import 'saf_impl.dart';
 
 bool get _isDarwin => Platform.isIOS || Platform.isMacOS;
 
-/// replaces the directory dialog in tests: returns the selected path, or
-/// null if canceled
+/// Replaces native directory access in tests with local paths, or null on
+/// cancellation. While set, restoration uses paths and release is a no-op.
 @visibleForTesting
 Future<String?> Function({String? dialogTitle, String? initialDirectory})?
     debugDirectoryDialog;
@@ -37,8 +37,10 @@ Future<PickedDirectory?> pickDirectory(
 /// [requestPermission] is only used by the browser implementation.
 Future<PickedDirectory?> restoreDirectory(String restoreKey,
     {bool requestPermission = false}) async {
-  if (Platform.isAndroid) return restoreSafDirectory(restoreKey);
-  if (_isDarwin) return restoreDarwinDirectory(restoreKey);
+  if (debugDirectoryDialog == null) {
+    if (Platform.isAndroid) return restoreSafDirectory(restoreKey);
+    if (_isDarwin) return restoreDarwinDirectory(restoreKey);
+  }
 
   return await Directory(restoreKey).exists() ? IoDirectory(restoreKey) : null;
 }
@@ -46,6 +48,7 @@ Future<PickedDirectory?> restoreDirectory(String restoreKey,
 /// Releases saved directory access identified by [restoreKey].
 /// Local path restoration has no persistent permission to release.
 Future<void> releaseDirectory(String restoreKey) async {
+  if (debugDirectoryDialog != null) return;
   if (Platform.isAndroid) return releaseSafDirectory(restoreKey);
   if (_isDarwin) return releaseDarwin(restoreKey);
 }
