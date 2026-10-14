@@ -33,7 +33,12 @@ jobs:
         run: python3 .github/scripts/build_matrix.py
 
   tests:
-    runs-on: ubuntu-22.04
+    name: Native and sample tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, macos-15]
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
@@ -49,8 +54,9 @@ jobs:
           channel: stable
           cache: true
       - run: flutter pub get
-      - run: flutter test test/io_impl_test.dart
+      - run: flutter test test/io_impl_test.dart test/picker_io_test.dart test/darwin_impl_test.dart test/native_picker_test.dart
       - run: flutter test --platform chrome test/web_access_test.dart
+        if: runner.os == 'Linux'
       - run: flutter pub get && flutter test
         working-directory: example
 
