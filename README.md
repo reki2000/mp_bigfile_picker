@@ -108,18 +108,12 @@ flutter test --platform chrome test/web_access_test.dart
 
 Tests cover local traversal, overlapping reads, EOF, reopening, browser handle storage, restoration, permission requests and cancellation. Browser tests substitute the picker; native dialogs are not exercised. Multi-gigabyte benchmarks and an Android/iOS/macOS device-validation matrix are not yet available.
 
-## Codemagic builds
-
-The repository root is a Flutter plugin. Its `ios/` directory contains plugin sources, not an Xcode application project. Build the host app in `example/`, which contains `ios/Runner.xcodeproj` and the Android application.
-
-The root [codemagic.yaml](codemagic.yaml) defines the **Build mobile example** workflow. In Codemagic, use **Start new build**, select the branch containing this file, and choose that workflow. It runs the package's local and browser tests, runs the example's widget tests, and builds an unsigned iOS release app and a debug Android APK from `example/`. These artifacts are for build verification; the iOS app requires signing before installation on a device. The workflow has no automatic triggers or store publishing.
-
-If using Codemagic's Flutter workflow editor instead, set **App settings > Build > Project path** to `example`. Rescan project paths if it is missing from the dropdown. Leaving the path as `.` causes `Did not find xcodeproj from .../clone/ios`. See the [Codemagic project-path documentation](https://docs.codemagic.io/flutter-configuration/flutter-projects/#multiple-flutter-projects-in-one-repository).
-
 ## License
 
 MIT. See [LICENSE](LICENSE).
 
 ## Sample app binaries
 
-The **Build binaries** GitHub Actions workflow builds the sample app for Android, iOS, Windows, macOS, Linux and Web. Download its artifacts for internal verification, then tag that exact successful commit to publish the same binaries to GitHub Releases without rebuilding. See [BINARY-DISTRIBUTION.md](BINARY-DISTRIBUTION.md) for the release process and optional signing secrets.
+The **Build binaries** GitHub Actions workflow tests PRs and builds Web; merges to `main` and manual runs build the sample app for Android, iOS, Windows, macOS, Linux and Web. Download its artifacts for internal verification, then tag that exact successful full-build commit to publish the same binaries to GitHub Releases without rebuilding. See [BINARY-DISTRIBUTION.md](BINARY-DISTRIBUTION.md) for the release process and optional signing secrets.
+
+Web demos: [stable](https://reki2000.github.io/mp_bigfile_picker/) and [develop](https://reki2000.github.io/mp_bigfile_picker/develop/). These paths become available after a successful branch build and GitHub Pages setup.
