@@ -1,3 +1,7 @@
+// Exercises native filesystem adapters and mocked platform channels.
+@TestOn('vm')
+library;
+
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mp_bigfile_picker/src/darwin_impl.dart';

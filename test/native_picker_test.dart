@@ -1,3 +1,7 @@
+// Exercises native filesystem adapters and mocked platform channels.
+@TestOn('vm')
+library;
+
 import 'dart:io';
 
 import 'package:flutter/services.dart';
